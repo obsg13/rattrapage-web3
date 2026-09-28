@@ -9,5 +9,6 @@ WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/src ./src
 EXPOSE 8080
+RUN mkdir -p /app/logs && chown node:node /app/logs
 USER node
 CMD ["node", "src/server.js"]
