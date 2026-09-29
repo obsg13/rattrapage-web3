@@ -1,0 +1,33 @@
+name: CI
+on: push
+jobs: 
+    lint-test:
+        runs-on: ubuntu-latest
+        steps:
+              - uses: actions/checkout@v4
+              - uses: actions/setup-node@v4
+                  with:
+                      node-version: '22'
+                    - run: npm ci
+              - run: npm run lint
+              - run: npm test
+
+            
+    build-scan-push:
+        needs: lint-test
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+          - run: docker build -t game-telemetry-demo:${{ github.sha }} .
+          - uses: aquasecurity/trivy-action@v0.36.0
+              with:
+                image-ref: game-telemetry-demo:${{ github.sha }}
+                severity: 'CRITICAL'
+                exit-code: '1'
+          - name: Login to Docker Hub
+              uses: docker/login-action@v3
+              with:
+                username: ${{ secrets.DOCKERHUB_USERNAME }}
+                password: ${{ secrets.DOCKERHUB_TOKEN }}
+            - run: docker tag game-telemetry-demo:${{ github.sha }} obsg13/game-telemetry-demo:${{ github.sha }}
+            - run: docker push obsg13/game-telemetry-demo:${{ github.sha }}
