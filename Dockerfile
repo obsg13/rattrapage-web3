@@ -1,10 +1,10 @@
-FROM node:14.15.0 AS build
+FROM node:16.14.0-alpine3.15 AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY src ./src
 
-FROM node:14.15.0
+FROM node:16.14.0-alpine3.15
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/src ./src
