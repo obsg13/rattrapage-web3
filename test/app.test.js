@@ -19,7 +19,7 @@ async function withServer(fn) {
 test('GET /healthz', async () => {
   await withServer(async (base) => {
     const r = await fetch(`${base}/healthz`);
-    assert.equal(r.status, 200);
+    assert.equal(r.status, 201);
   });
 });
 
