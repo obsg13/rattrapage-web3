@@ -1,0 +1,41 @@
+# Recording rules : Prometheus calcule ces requêtes toutes les minutes
+# et enregistre le résultat comme une nouvelle série.
+# Nommage : niveau:metrique:operation
+#   niveau    = labels gardés après l'agrégation (route, job, build_cause...)
+#   metrique  = nom de la métrique d'origine (sans _total après un rate)
+#   operation = calcul appliqué (rate5m, ratio_rate5m, p95_5m)
+groups:
+  - name: telemetry
+    rules:
+      # Question : combien de requêtes par seconde reçoit chaque route ?
+      - record: route:http_requests:rate5m
+        expr: sum by (route) (rate(http_requests_total[5m]))
+
+      # Question : quelle part des requêtes finit en erreur serveur (5xx) ?
+      # Résultat entre 0 et 1 (0.02 = 2 % d'erreurs)
+      - record: job:http_requests_5xx:ratio_rate5m
+        # "or ... * 0" : s'il n'y a encore aucune 5xx, on compte 0 au lieu de rien
+        expr: |
+          (
+            sum by (job) (rate(http_requests_total{status=~"5.."}[5m]))
+            or
+            sum by (job) (rate(http_requests_total[5m])) * 0
+          )
+          /
+          sum by (job) (rate(http_requests_total[5m]))
+
+      # Question : quelle latence 95 % des requêtes ne dépassent pas, par route ?
+      # On garde le label "le" (bornes des buckets), histogram_quantile en a besoin
+      - record: route:http_request_duration_seconds:p95_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (route, le) (rate(http_request_duration_seconds_bucket[5m]))
+          )
+
+      # Question : dans chaque build, quelle part des rapports vient de chaque cause ?
+      # Pour un même build, la somme des causes vaut 1
+      - record: build_cause:perf_reports:ratio_rate5m
+        expr: |
+          sum by (build, cause) (rate(perf_reports_total[5m]))
+          / on (build) group_left
+          sum by (build) (rate(perf_reports_total[5m]))
