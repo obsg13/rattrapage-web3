@@ -67,14 +67,14 @@ sum by (report_version) (count_over_time({job="telemetry-historique", event="per
 **74 spikes uniques** (75 lignes avec un doublon) ont `orphan = true`. Cela veut dire qu'aucun `Game completed` de l'export ne correspond à leur `server.id`.
 
 ```logql
-sum(count_over_time({job="telemetry-historique", event="perf_spike"} | json | occurrence = 1 | orphan = "true" [8d]))
+sum by (client) (count_over_time({job="telemetry-historique", event="perf_spike"} | json | occurrence = 1 | orphan = "true" | regexp `"id":"P-(?P<client>[0-9a-f]+)-` [8d]))
 ```
 
 Ces parties ne sont pas situées au début ni à la fin de l'export : leur absence ne vient donc pas de la coupure du fichier.
 - 4 spikes (2 parties) se produisent juste avant le trou du 22/09 à 11:59 UTC (voir B3.6).
-- Les 70 autres (70 parties) apparaissent à partir du 24/09 à 07:32 UTC. Ce sont des parties sans fin enregistrée : abandons ou crashs.
+- Les 70 autres sont **exactement les 70 rapports falsifiés du client `5e1f0c7a`** (voir B3.7). Chacun cite un `server.id` différent qui n'existe dans aucune partie : le client invente des parties. C'est une preuve supplémentaire de falsification, pas des abandons.
 
-**Impact :** le script ne peut pas rattacher ces spikes à une carte finale ni à un score. On les garde pour mesurer les performances, mais on les exclut des analyses « par partie terminée ». Leur apparition le 24/09 mérite d'être croisée avec les builds (partie E/F).
+**Impact:** le script ne peut pas rattacher ces spikes à une carte finale ni à un score. On les garde pour mesurer les performances, mais on les exclut des analyses « par partie terminée ».
 
 ### B3.6 - Trous dans les données
 
@@ -84,10 +84,10 @@ Requête en mode **Range** dans Grafana (pas d'1 h, du 19/09 au 27/09) :
 sum(count_over_time({job="telemetry-historique"} | json | occurrence = 1 [1h]))
 ```
 
-- **Nuits calmes (normal) :** 10 silences de 60 à 84 min, tous entre 23 h et 05 h UTC (01 h à 07 h à Paris). À ces heures, l'activité tombe à environ 3 événements par heure. Ces silences sont à cheval sur deux fenêtres : aucune fenêtre d'1 h n'est vide, elles sont simplement basses.
-- **Trou anormal : le 22/09 de 11:59 à 14:14 UTC** (13:59 à 16:14 à Paris), soit 135 min. Ce sont les **deux seules fenêtres d'1 h à 0** de toute la période (fin 13:00 et fin 14:00). Cette tranche compte d'habitude environ 16 événements par heure, il en manque donc à peu près 35.
+- **Nuits calmes (normal):** 10 silences de 60 à 84 min, tous entre 23 h et 05 h UTC (01 h à 07 h à Paris). À ces heures, l'activité tombe à environ 3 événements par heure. Ces silences sont à cheval sur deux fenêtres : aucune fenêtre d'1 h n'est vide, elles sont simplement basses.
+- **Trou anormal: le 22/09 de 11:59 à 14:14 UTC** (13:59 à 16:14 à Paris), soit 135 min. Ce sont les **deux seules fenêtres d'1 h à 0** de toute la période (fin 13:00 et fin 14:00). Cette tranche compte d'habitude environ 16 événements par heure, il en manque donc à peu près 35.
 
-**Impact :** l'absence de spikes pendant ce trou ne prouve pas que le jeu allait bien. C'est une panne probable du serveur ou de la collecte. On exclut cette tranche des calculs de taux, et on signale les 2 parties orphelines interrompues juste avant.
+**Impact:** l'absence de spikes pendant ce trou ne prouve pas que le jeu allait bien. C'est une panne probable du serveur ou de la collecte. On exclut cette tranche des calculs de taux, et on signale les 2 parties orphelines interrompues juste avant.
 
 ### B3.7 - Incohérences: rapports falsifiés
 
