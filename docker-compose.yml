@@ -3,3 +3,23 @@ services:
     build: .
     ports:
       - "8080:8080"
+    volumes:
+      - logs-data:/app/logs
+
+  loki:
+    image: grafana/loki:3.0.0
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml -validation.reject-old-samples=false
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    volumes:
+      - logs-data:/var/log/telemetry
+      - ./promtail-config.yaml:/etc/promtail/config.yaml
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      - loki
+
+volumes:
+  logs-data:
