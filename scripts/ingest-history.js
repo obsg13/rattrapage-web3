@@ -62,7 +62,20 @@ for (const e of events) {
 // Le fichier va du plus récent au plus ancien, Loki veut l'ordre croissant
 events.sort((a, b) => a.ts - b.ts);
 
+// Si l'historique est déjà dans Loki (conteneur relancé), on ne renvoie rien
+async function alreadyIngested() {
+  const res = await fetch(`${LOKI_URL}/loki/api/v1/label/job/values?since=720h`);
+  if (!res.ok) throw new Error(`Loki pas prêt (${res.status})`);
+  const body = await res.json();
+  return (body.data || []).includes('telemetry-historique');
+}
+
 async function main() {
+  if (await alreadyIngested()) {
+    console.log('Historique déjà présent dans Loki, rien à envoyer');
+    return;
+  }
+  
   let sent = 0;
   for (let i = 0; i < events.length; i += BATCH_SIZE) {
     const batch = events.slice(i, i + BATCH_SIZE);
