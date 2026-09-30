@@ -6,11 +6,19 @@ services:
     volumes:
       - logs-data:/app/logs
 
+  loadgen:
+    build: .
+    command: node scripts/loadgen.js --url http://telemetry:8080
+    depends_on:
+      - telemetry
+
   loki:
     image: grafana/loki:3.0.0
     ports:
       - "3100:3100"
     command: -config.file=/etc/loki/local-config.yaml -validation.reject-old-samples=false
+    volumes:
+      - loki-data:/loki
 
   promtail:
     image: grafana/promtail:3.0.0
@@ -21,5 +29,34 @@ services:
     depends_on:
       - loki
 
+  ingest-history:
+    build: .
+    command: node scripts/ingest-history.js
+    environment:
+      - LOKI_URL=http://loki:3100
+    volumes:
+      - ./data:/app/data:ro
+    restart: on-failure
+    depends_on:
+      - loki
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus:/etc/prometheus
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+
 volumes:
   logs-data:
+  loki-data:
