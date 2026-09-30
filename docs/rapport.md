@@ -120,7 +120,7 @@ En comptant les lignes, j'ai obtenu **2943 au lieu de 2944**, et le résultat ch
 | `2026-09-27T00:00:00.001Z` | **2944** |
 
 ```logql
-sum(count_over_time({job="telemetry-historique"}[8d]))
+sum(count_over_time({job="telemetry-historique"}[20d]))
 ```
 
 En comptant heure par heure, j'ai trouvé la ligne manquante : `P-393390d2-18`, horodatée **pile à 22:00:00.000 UTC**.
