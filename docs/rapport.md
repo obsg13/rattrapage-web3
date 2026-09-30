@@ -132,7 +132,10 @@ En comptant heure par heure, j'ai trouvé la ligne manquante : `P-393390d2-18`, 
 La configuration de Loki (`/config`) contient `split_instant_metric_queries_by_interval: 1h` : Loki découpe les requêtes instantanées en tranches d'1 h, et une ligne qui tombe exactement sur une frontière de tranche peut être oubliée.
 Comme nos timestamps sont tous à la seconde, décaler l'instant d'évaluation d'1 ms (`...00.001Z`) évite toute frontière.
 
-**Impact:** un écart de 1 ou 2 lignes vient de l'outil, pas des données. Toutes les requêtes de ce rapport sont donc évaluées à `2026-09-27T00:00:00.001Z`.
+Second piège: juste après une ré-ingestion à 17:05, la requête par cause donnait **2096 spikes au lieu de 2110**. Les 14 manquants sont les derniers du 26/09, après 21:52 UTC.
+Loki garde le dernier chunk de chaque flux en mémoire et ne l'écrit sur disque qu'après 30 min sans nouvelle ligne (`chunk_idle_period: 30m`). Or, pour des données de plus de 3 h, il n'interroge que le stockage (`query_ingesters_within: 3h`), donc ces 14 lignes restent invisibles tant qu'elles ne sont pas écrites sur disque : il faut attendre 30 min après une ingestion avant de compter.
+
+**Impact:** un écart dans un comptage peut venir de Loki et non des données : 1 ou 2 lignes quand un timestamp tombe pile sur une frontière d'1 h, ou les dernières lignes de chaque flux pendant les 30 min qui suivent une ingestion. Toutes les requêtes de ce rapport sont donc évaluées à `2026-09-27T00:00:00.001Z`, au moins 30 min après la dernière ingestion.
 
 ### Choix des labels et cardinalité
 
@@ -141,3 +144,23 @@ Loki indexe **uniquement les labels**, et chaque combinaison de labels crée un 
 - `report.id` (un par rapport, environ 2100), `client` (231), `server.id` (752 parties rien que dans les spikes) et `build` (une nouvelle valeur à chaque déploiement) créeraient des centaines ou milliers de petits flux. L'index grossirait et les requêtes ralentiraient.
 
 Ces champs restent donc dans le contenu JSON, et on les filtre au moment de la requête avec `| json` (ou `|=` pour un filtre texte rapide).
+
+## C1 - Justification des métriques
+
+Le service expose ses métriques sur `GET /metrics` avec prom-client. Elles sont déclarées dans `src/metrics.js`, alimentées par le middleware HTTP (`src/app.js`) et par la fonction `log` (`src/server.js`).
+
+| Métrique | Type | Labels (nombre de valeurs possibles) | Question à laquelle elle répond | Pourquoi ce type |
+|---|---|---|---|---|
+| `http_requests_total` | Counter | `method` (2 en pratique : GET, POST), `route` (5 : 4 routes + `unknown`), `status` (~7 : 200, 202, 400, 404, 413, 422, 500) | Combien de requêtes par seconde, et quelle part en erreur ? | Le nombre ne fait que monter ; `rate()` donne le débit et le taux d'erreurs. |
+| `http_request_duration_seconds` | Histogram | `method` (2), `route` (5) ; buckets de 5 ms à 1 s | Quel est le p95 de latence de chaque route ? | Une moyenne cache les requêtes lentes ; l'histogramme permet `histogram_quantile`. Pas de label `status` pour limiter le nombre de séries (11 par combinaison). |
+| `games_in_progress` | Gauge | aucun (1 série) | Combien de parties tournent en ce moment ? | La valeur monte et descend. Elle est recalculée à chaque scrape via `collect()`, donc jamais périmée. |
+| `games_completed_total` | Counter | `map` (5), `quarantined` (2) | Combien de parties se terminent, sur quelle carte, et combien sont mises en quarantaine ? | Compte des événements qui s'accumulent. 10 séries au maximum. |
+| `game_duration_seconds` | Histogram | `map` (5) ; buckets 60, 120, 300, 600, 900 | Les parties ont-elles une durée normale, ou voit-on des parties très courtes (farming sur `vault`) ? | On lit la répartition par tranches : 60/120 isolent le farming (55-75 s), 300 à 900 les parties normales (300-840 s). Durée en secondes de jeu (`× SPEED`). |
+| `perf_reports_total` | Counter | `cause` (6), `build` (1 par build déployé + `invalid`), `source` (2 : `fleet`, `ingest`) | Quelle cause de spike augmente, et depuis quel build ? | `rate()` par `cause` et `build` montre une régression, comme l'overlay depuis le build 24-3. |
+| `perf_reports_suspicious_total` | Counter | `build` (1 par build + `invalid`) | Reçoit-on des rapports impossibles (fps > 144 ou frame plus courte que son travail) ? | Un compteur suffit pour déclencher une alerte ; le détail (quel client) se cherche dans Loki. |
+| Métriques par défaut (`process_*`, `nodejs_*`) | Counter, Gauge et Histogram selon la métrique | peu de labels, valeurs fixes (ex. type de GC, espace du heap) | Le processus Node est-il saturé : CPU, mémoire, event loop bloquée ? | Fournies par `collectDefaultMetrics`. `nodejs_eventloop_lag_seconds` est utile ici car `POST /api/reports` fait du travail synchrone qui bloque l'event loop. |
+
+**Cardinalité:** chaque combinaison de labels crée une série dans Prometheus, donc un label doit avoir un petit nombre de valeurs connues à l'avance.
+Le label `route` utilise le modèle de route Express (`req.route.path`) et non l'URL: une URL inconnue ou inventée donne toujours `unknown` au lieu de créer une nouvelle série.
+Pour `POST /api/reports`, le `build` est envoyé par le client, donc on le vérifie avec la regex `^beta-\d{8}-\d+$`. Sinon un client modifié (comme `5e1f0c7a`) pourrait inventer une valeur par rapport. Une valeur invalide devient `invalid`.
+Enfin, il n'y a pas de label `client` (231 valeurs et plus) ni `server.id` (une valeur par partie, sans limite) : ces identifiants restent dans les logs, et on les retrouve dans Loki avec `| json`.
