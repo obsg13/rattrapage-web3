@@ -18,33 +18,34 @@ Toutes les requêtes sont des requêtes **instantanées** évaluées au `2026-09
 
 | Type | Lignes dans Loki | Doublons | Événements uniques |
 |---|---|---|---|
-| game_completed | 796 | 17 | **779** |
-| perf_spike | 2148 | 38 | **2110** |
-| **Total** | **2944** | **55** | **2889** |
+| game_completed | 796 | 17 | 779 |
+| perf_spike | 2148 | 38 | 2110 |
+| **Total** | 2944 | 55 | **2889** |
 
 ```logql
 sum by (event) (count_over_time({job="telemetry-historique"}[8d]))
 sum by (event) (count_over_time({job="telemetry-historique"} | json | occurrence = 1 [8d]))
 ```
 
-Période couverte: du **19/09/2026 22:31:37 UTC** au **26/09/2026 22:04:13 UTC**, soit 7 jours.
+Période couverte : du 19/09/2026 22:31 UTC au 26/09/2026 22:04 UTC, soit 7 jours.
+
 Preuve : `{job="telemetry-historique"}` dans Grafana Explore, en tri « Oldest first » puis « Newest first ».
 
-**Impact :** le nom du fichier (« 20_26 ») ne correspond pas aux dates UTC. Le premier événement date du 19/09 au soir en UTC (20/09 00:31 à Paris). Toutes les analyses doivent compter sur `occurrence = 1`, sinon elles surestiment de 1,9%.
+**Impact:** le nom du fichier (« 20_26 ») ne correspond pas aux dates UTC : le premier événement date du 19/09 au soir en UTC (le 20/09 à Paris). Toutes les analyses doivent compter avec `occurrence = 1`, sinon elles surestiment d'environ 2 %.
 
 ### B3.2 - Pièges de format et traitement par le script
 
 | Piège | Exemple | Traitement dans `ingest-history.js` |
 |---|---|---|
-| Texte multi-lignes | en-tête `Game completed Ju73lcJQS · 9/27/2026, 12:04:13 AM`, puis résumé `harbor · 1 - 3`, puis JSON indenté sur plusieurs lignes | le fichier est coupé en blocs sur les lignes vides (`split('\n\n')`). Ligne 0 = en-tête (type + `headerId` + date), ligne 1 = `summary`, le reste = JSON. Chaque bloc devient **une seule** ligne JSON compacte (`JSON.stringify`). Un JSON illisible serait gardé avec `jsonCasse: true` (0 cas dans l'export). |
-| Date US 12 h AM/PM, heure de Paris | `9/27/2026, 12:04:13 AM` = 26/09 22:04:13 UTC | `parseDate` inverse mois/jour, convertit 12 AM en 0 h et ajoute 12 h aux heures PM, puis ajoute le suffixe `+02:00` (heure d'été). Loki reçoit donc un timestamp UTC. Limite : `+02:00` est codé en dur, ce qui est valable jusqu'au 25/10. |
+| Texte multi-lignes | en-tête `Game completed Ju73lcJQS · 9/27/2026, 12:04:13 AM`, puis résumé `harbor · 1 - 3`, puis JSON indenté sur plusieurs lignes | le fichier est coupé en blocs sur les lignes vides. Ligne 0 = en-tête (type + `headerId` + date), ligne 1 = `summary`, le reste = JSON. Chaque bloc devient une seule ligne JSON compacte. |
+| Date US 12 h AM/PM, heure de Paris | `9/27/2026, 12:04:13 AM` = 26/09 22:04:13 UTC | `parseDate` inverse mois/jour, gère AM/PM, puis ajoute `+02:00` (heure d'été de Paris). Loki reçoit donc un timestamp UTC. Limite : ce `+02:00` est codé en dur. |
 | Ordre antichronologique | le fichier commence par l'événement le plus récent | `events.sort((a, b) => a.ts - b.ts)` avant l'envoi, car Loki attend des lignes dans l'ordre croissant pour chaque flux. |
 
-**Impact :** sans ces conversions, les courbes seraient décalées de 2 h (voire de 12 h pour les heures entre minuit et 1 h du matin), et Loki refuserait une partie des lignes.
+**Impact :** sans ces conversions, les courbes seraient décalées de plusieurs heures et Loki refuserait une partie des lignes.
 
 ### B3.3 - Doublons exacts
 
-**55 blocs** apparaissent au moins deux fois à l'identique: 17 `game_completed` et 38 `perf_spike`.
+55 blocs apparaissent au moins deux fois à l'identique : 17 `game_completed` et 38 `perf_spike`.
 Le script numérote chaque copie dans `occurrence`. Sans cela, Loki fusionnerait en silence les lignes identiques qui ont le même timestamp, et on ne pourrait plus mesurer les doublons.
 
 ```logql
@@ -58,92 +59,63 @@ sum by (event) (count_over_time({job="telemetry-historique"} | json | occurrence
 | Version | Build | `rttMs` | `work.stages.physics` | Rapports uniques |
 |---|---|---|---|---|
 | 1 | tous les builds avant 26/09-6 | `report.rttMs` (racine) | absent | 2085 |
-| 2 | `beta-20260926-6` | `report.network.rttMs` | présent | **25** |
+| 2 | `beta-20260926-6` | `report.network.rttMs` | présent | 25 |
 
 ```logql
-sum by (report_version, report_build) (count_over_time({job="telemetry-historique", event="perf_spike"} | json | occurrence = 1 | report_version = 2 [8d]))
+sum by (report_version) (count_over_time({job="telemetry-historique", event="perf_spike"} | json | occurrence = 1 [8d]))
 sum by (report_version) (count_over_time({job="telemetry-historique", event="perf_spike"} | json | occurrence = 1 | report_rttMs != "" [8d]))
-sum by (report_version) (count_over_time({job="telemetry-historique", event="perf_spike"} | json | occurrence = 1 | report_network_rttMs != "" [8d]))
-sum by (report_version) (count_over_time({job="telemetry-historique", event="perf_spike"} | json | occurrence = 1 | report_work_stages_physics != "" [8d]))
 ```
 
-**Impact :** une courbe de latence construite uniquement sur `report_rttMs` s'arrête net au build 26-6, ce qui pourrait passer pour une panne alors qu'il n'y en a pas. Il faut lire les deux champs selon `report_version`. De même, `stages.physics` n'est comparable qu'entre rapports v2 : les 25 rapports sont trop peu nombreux pour conclure.
+La première requête compte les rapports par version (2085 en v1, 25 en v2). La seconde montre que `rttMs` à la racine n'existe que dans les rapports v1.
+
+**Impact:** une courbe de latence construite uniquement sur `report_rttMs` s'arrête net au build 26-6, ce qui ressemble à une panne alors qu'il n'y en a pas. **Il faut lire le bon champ selon `report_version`.** Les 25 rapports v2 sont trop peu nombreux pour conclure sur `stages.physics`.
 
 ### B3.5 - Spikes orphelins
 
-**74 spikes uniques** (75 lignes avec un doublon) ont `orphan = true`. Cela veut dire qu'aucun `Game completed` de l'export ne correspond à leur `server.id`.
+74 spikes uniques ont `orphan = true`: aucun `Game completed` de l'export ne correspond à leur `server.id`.
 
 ```logql
 sum by (client) (count_over_time({job="telemetry-historique", event="perf_spike"} | json | occurrence = 1 | orphan = "true" | regexp `"id":"P-(?P<client>[0-9a-f]+)-` [8d]))
 ```
 
-Ces parties ne sont pas situées au début ni à la fin de l'export : leur absence ne vient donc pas de la coupure du fichier.
+Ces parties ne sont pas situées au début ni à la fin de l'export : leurs absence ne vient donc pas de la coupure du fichier.
 - 4 spikes (2 parties) se produisent juste avant le trou du 22/09 à 11:59 UTC (voir B3.6).
-- Les 70 autres sont **exactement les 70 rapports falsifiés du client `5e1f0c7a`** (voir B3.7). Chacun cite un `server.id` différent qui n'existe dans aucune partie : le client invente des parties. C'est une preuve supplémentaire de falsification, pas des abandons.
+- Les 70 autres sont exactement les 70 rapports falsifiés du client `5e1f0c7a` (voir B3.7): chacun cite une partie qui n'existe nulle part. **Le client invente des parties: c'est une preuve de plus de falsification, pas des abandons.**
 
 **Impact:** le script ne peut pas rattacher ces spikes à une carte finale ni à un score. On les garde pour mesurer les performances, mais on les exclut des analyses « par partie terminée ».
 
 ### B3.6 - Trous dans les données
 
-Requête en mode **Range** dans Grafana (pas d'1 h, du 19/09 au 27/09) :
+Requête en mode Range dans Grafana, avec un pas d'1 h :
 
 ```logql
 sum(count_over_time({job="telemetry-historique"} | json | occurrence = 1 [1h]))
 ```
 
-- **Nuits calmes (normal):** 10 silences de 60 à 84 min, tous entre 23 h et 05 h UTC (01 h à 07 h à Paris). À ces heures, l'activité tombe à environ 3 événements par heure. Ces silences sont à cheval sur deux fenêtres : aucune fenêtre d'1 h n'est vide, elles sont simplement basses.
-- **Trou anormal: le 22/09 de 11:59 à 14:14 UTC** (13:59 à 16:14 à Paris), soit 135 min. Ce sont les **deux seules fenêtres d'1 h à 0** de toute la période (fin 13:00 et fin 14:00). Cette tranche compte d'habitude environ 16 événements par heure, il en manque donc à peu près 35.
+- Nuits calmes (normal): une dizaine de silences d'environ 1 h, toujours la nuit (entre 01 h et 07 h à Paris), quand l'activité tombe à environ 3 événements par heure. Aucune fenêtre d'1 h n'est complètement vide.
+- **Trou anormal le 22/09 de 11:59 à 14:14 UTC** (13:59 à 16:14 à Paris), soit plus de 2 h. Ce sont les deux seules fenêtres d'1 h à zéro de toute la période, et il manque environ 35 événements.
 
 **Impact:** l'absence de spikes pendant ce trou ne prouve pas que le jeu allait bien. C'est une panne probable du serveur ou de la collecte. On exclut cette tranche des calculs de taux, et on signale les 2 parties orphelines interrompues juste avant.
 
 ### B3.7 - Incohérences: rapports falsifiés
 
-Deux règles physiquement impossibles :
-- `fps > 144`, alors que le jeu plafonne à 144;
-- `frameMs < work.totalMs`, c'est-à-dire une image plus courte que le travail qu'elle contient.
-
-LogQL ne sait pas comparer deux champs entre eux. On calcule donc la différence avec `label_format` et `subf`, puis on filtre sur `ecart > 0`. L'id client est extrait de `report.id` (format `P-<client>-<seq>`) avec `regexp`.
+Certains rapports sont physiquement impossibles : `fps > 144` alors que le jeu plafonne à 144, ou une image plus courte que le travail qu'elle contient (`frameMs < work.totalMs`).
+Le script d'ingestion applique ces deux règles (fonction `isSuspicious`) et ajoute un champ `suspect` à chaque rapport. Il suffit ensuite de filtrer sur ce champ. L'id client est extrait de `report.id` (format `P-<client>-<seq>`) avec `regexp`.
 
 ```logql
-sum by (client) (count_over_time({job="telemetry-historique", event="perf_spike"}
-  | json | occurrence = 1
-  | label_format ecart=`{{ subf .report_work_totalMs .report_frameMs }}`
-  | report_fps > 144 or ecart > 0
-  | regexp `"id":"P-(?P<client>[0-9a-f]+)-` [8d]))
+sum by (client) (count_over_time({job="telemetry-historique", event="perf_spike"} | json | occurrence = 1 | suspect = "true" | regexp `"id":"P-(?P<client>[0-9a-f]+)-` [8d]))
 ```
 
-Résultat: **70 rapports incohérents, tous du client `5e1f0c7a`** (sur 231 clients). Chaque règle prise seule trouve les mêmes 70 rapports. Ce sont aussi **tous** les rapports de ce client.
+Résultat: 70 rapports suspects, tous du client `5e1f0c7a` (sur 231 clients). **Ce sont tous les rapports de ce client : il n'envoie que des rapports falsifiés.**
 
 **Impact:** ces 70 rapports faussent les moyennes de FPS et de temps de frame. On les exclut de l'analyse de performance, par exemple avec `!= "P-5e1f0c7a-"`, et on les traite comme un cas de sécurité (client modifié ou rapports forgés).
 
-### B3.8 - Piège de mesure dans Loki
+### B3.8 - Pièges de mesure dans Loki
 
-En comptant les lignes, j'ai obtenu **2943 au lieu de 2944**, et le résultat changeait selon l'heure où j'évaluais la requête :
+J'ai constaté que le même comptage variait d'une ligne selon l'instant où je l'évaluais (2943 au lieu de 2944) : une ligne horodatée pile à 22:00:00 UTC était oubliée, car Loki découpe les requêtes en tranches d'une heure.
+J'ai aussi vu qu'après une ré-ingestion, les dernières lignes restaient invisibles pendant environ 30 min (2096 spikes au lieu de 2110).
 
-| Instant d'évaluation | Lignes comptées |
-|---|---|
-| `2026-09-27T00:00:00Z` | 2943 |
-| `2026-09-30T12:34:56Z` | 2942 |
-| `2026-09-27T00:00:00.001Z` | **2944** |
-
-```logql
-sum(count_over_time({job="telemetry-historique"}[20d]))
-```
-
-En comptant heure par heure, j'ai trouvé la ligne manquante : `P-393390d2-18`, horodatée **pile à 22:00:00.000 UTC**.
-
-```logql
-{job="telemetry-historique", event="perf_spike"} |= `"id":"P-393390d2-18"`
-```
-
-La configuration de Loki (`/config`) contient `split_instant_metric_queries_by_interval: 1h` : Loki découpe les requêtes instantanées en tranches d'1 h, et une ligne qui tombe exactement sur une frontière de tranche peut être oubliée.
-Comme nos timestamps sont tous à la seconde, décaler l'instant d'évaluation d'1 ms (`...00.001Z`) évite toute frontière.
-
-Second piège: juste après une ré-ingestion à 17:05, la requête par cause donnait **2096 spikes au lieu de 2110**. Les 14 manquants sont les derniers du 26/09, après 21:52 UTC.
-Loki garde le dernier chunk de chaque flux en mémoire et ne l'écrit sur disque qu'après 30 min sans nouvelle ligne (`chunk_idle_period: 30m`). Or, pour des données de plus de 3 h, il n'interroge que le stockage (`query_ingesters_within: 3h`), donc ces 14 lignes restent invisibles tant qu'elles ne sont pas écrites sur disque : il faut attendre 30 min après une ingestion avant de compter.
-
-
-**Impact:** un écart dans un comptage peut venir de Loki et non des données : 1 ou 2 lignes quand un timestamp tombe pile sur une frontière d'1 h, ou les dernières lignes de chaque flux pendant les 30 min qui suivent une ingestion. Toutes les requêtes de ce rapport sont donc évaluées à `2026-09-27T00:00:00.001Z`, au moins 30 min après la dernière ingestion.
+**Impact:** un petit écart de comptage peut venir de Loki et non des données. J'évalue donc toutes les requêtes à `2026-09-27T00:00:00.001Z`, et j'attends 30 min après une ingestion avant de compter.
 
 ### Choix des labels et cardinalité
 
@@ -160,11 +132,11 @@ Le service expose ses métriques sur `GET /metrics` avec prom-client. Elles sont
 
 | Métrique | Type | Labels (nombre de valeurs possibles) | Question à laquelle elle répond | Pourquoi ce type |
 |---|---|---|---|---|
-| `http_requests_total` | Counter | `method` (2 en pratique : GET, POST), `route` (5 : 4 routes + `unknown`), `status` (~7 : 200, 202, 400, 404, 413, 422, 500) | Combien de requêtes par seconde, et quelle part en erreur ? | Le nombre ne fait que monter ; `rate()` donne le débit et le taux d'erreurs. |
-| `http_request_duration_seconds` | Histogram | `method` (2), `route` (5) ; buckets de 5 ms à 1 s | Quel est le p95 de latence de chaque route ? | Une moyenne cache les requêtes lentes ; l'histogramme permet `histogram_quantile`. Pas de label `status` pour limiter le nombre de séries (11 par combinaison). |
+| `http_requests_total` | Counter | `method` (2 en pratique : GET, POST), `route` (5 : 4 routes + `unknown`), `status` (200, 202, 400, 404,..) | Combien de requêtes par seconde, et quelle part en erreur ? | Le nombre ne fait que monter ; `rate()` donne le débit et le taux d'erreurs. |
+| `http_request_duration_seconds` | Histogram | `method` (2), `route` (5) ; buckets de 5 ms à 1 s | Quel est le p95 de latence de chaque route ? | Une moyenne cache les requêtes lentes ; l'histogramme permet `histogram_quantile`. Pas de label `status` pour limiter le nombre de séries. |
 | `games_in_progress` | Gauge | aucun (1 série) | Combien de parties tournent en ce moment ? | La valeur monte et descend. Elle est recalculée à chaque scrape via `collect()`, donc jamais périmée. |
-| `games_completed_total` | Counter | `map` (5), `quarantined` (2) | Combien de parties se terminent, sur quelle carte, et combien sont mises en quarantaine ? | Compte des événements qui s'accumulent. 10 séries au maximum. |
-| `game_duration_seconds` | Histogram | `map` (5) ; buckets 60, 120, 300, 600, 900 | Les parties ont-elles une durée normale, ou voit-on des parties très courtes (farming sur `vault`) ? | On lit la répartition par tranches : 60/120 isolent le farming (55-75 s), 300 à 900 les parties normales (300-840 s). Durée en secondes de jeu (`× SPEED`). |
+| `games_completed_total` | Counter | `map` (5), `quarantined` (2) | Combien de parties se terminent, sur quelle carte, et combien sont mises en quarantaine ? | Compte des événements qui s'accumulent. |
+| `game_duration_seconds` | Histogram | `map` (5) ; buckets 60, 120, 300, 600, 900 | Les parties ont-elles une durée normale, ou voit-on des parties très courtes (farming sur `vault`) ? | On lit la répartition par tranches : 60/120 isolent le farming (55-75 s), 300 à 900 les parties normales (300-840 s). Durée en temps de jeu. |
 | `perf_reports_total` | Counter | `cause` (6), `build` (1 par build déployé + `invalid`), `source` (2 : `fleet`, `ingest`) | Quelle cause de spike augmente, et depuis quel build ? | `rate()` par `cause` et `build` montre une régression, comme l'overlay depuis le build 24-3. |
 | `perf_reports_suspicious_total` | Counter | `build` (1 par build + `invalid`) | Reçoit-on des rapports impossibles (fps > 144 ou frame plus courte que son travail) ? | Un compteur suffit pour déclencher une alerte ; le détail (quel client) se cherche dans Loki. |
 | Métriques par défaut (`process_*`, `nodejs_*`) | Counter, Gauge et Histogram selon la métrique | peu de labels, valeurs fixes (ex. type de GC, espace du heap) | Le processus Node est-il saturé : CPU, mémoire, event loop bloquée ? | Fournies par `collectDefaultMetrics`. `nodejs_eventloop_lag_seconds` est utile ici car `POST /api/reports` fait du travail synchrone qui bloque l'event loop. |
