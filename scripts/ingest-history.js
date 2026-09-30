@@ -4,6 +4,7 @@
 // Usage : node scripts/ingest-history.js
 
 const fs = require('node:fs');
+const { classifyReport, isSuspicious } = require('../src/classify');
 
 const FILE = 'data/admin-export-2026-09-20_26.log';
 const LOKI_URL = process.env.LOKI_URL || 'http://localhost:3100';
@@ -46,6 +47,13 @@ for (const block of blocks) {
   // Doublons exacts : on les numérote, sinon Loki n'en garderait qu'un
   seen[block] = (seen[block] || 0) + 1;
 
+    // Classification automatique de chaque rapport (même règles que le service en direct)
+  if (data.report) {
+    data.cause = classifyReport(data.report);
+    data.suspect = isSuspicious(data.report);
+    data.rttMs = data.report.rttMs ?? data.report.network?.rttMs; // v1 ou v2
+  }
+
   events.push({
     ts: parseDate(dateText),
     event: type,
@@ -75,7 +83,7 @@ async function main() {
     console.log('Historique déjà présent dans Loki, rien à envoyer');
     return;
   }
-  
+
   let sent = 0;
   for (let i = 0; i < events.length; i += BATCH_SIZE) {
     const batch = events.slice(i, i + BATCH_SIZE);
