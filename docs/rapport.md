@@ -1,3 +1,10 @@
+## A - Preuves CI/CD et déploiement
+
+Le pipeline `.github/workflows/ci.yml` tourne à chaque push: `lint-test` (ESLint + `node --test`), puis `build-scan-push` (build Docker, scan Trivy bloquant sur les failles `CRITICAL`, push Docker Hub).
+- Un test cassé volontairement fait échouer `lint-test`, et `build-scan-push` n'est pas lancé (voir docs/captures/A3-ci-echec-tests.png). Après correction, tout repasse au vert (voir docs/captures/A3-ci-tests-corriges.png).
+- Une image de base vulnérable fait échouer le scan Trivy sur `CVE-2026-59873` (CRITICAL). Le push n'est pas exécuté, donc l'image n'est jamais publiée (voir docs/captures/A3-ci-echec-vuln.png et docs/captures/A3-ci-echec-vuln-detail-trivy.png). Le retour à l'image saine repasse au vert (voir docs/captures/A3-ci-vuln-corrigee.png).
+- La stack tourne en local avec `docker compose up -d --build`: 7 services, dont `ingest-history` en `exited (0)` car c'est un job unique (voir docs/captures/A4-docker-compose-ps.png).
+
 ## B3 - Rapport de qualité des données
 
 Source : `data/admin-export-2026-09-20_26.log`, ingéré dans Loki par `scripts/ingest-history.js`
@@ -135,12 +142,14 @@ Comme nos timestamps sont tous à la seconde, décaler l'instant d'évaluation d
 Second piège: juste après une ré-ingestion à 17:05, la requête par cause donnait **2096 spikes au lieu de 2110**. Les 14 manquants sont les derniers du 26/09, après 21:52 UTC.
 Loki garde le dernier chunk de chaque flux en mémoire et ne l'écrit sur disque qu'après 30 min sans nouvelle ligne (`chunk_idle_period: 30m`). Or, pour des données de plus de 3 h, il n'interroge que le stockage (`query_ingesters_within: 3h`), donc ces 14 lignes restent invisibles tant qu'elles ne sont pas écrites sur disque : il faut attendre 30 min après une ingestion avant de compter.
 
+
 **Impact:** un écart dans un comptage peut venir de Loki et non des données : 1 ou 2 lignes quand un timestamp tombe pile sur une frontière d'1 h, ou les dernières lignes de chaque flux pendant les 30 min qui suivent une ingestion. Toutes les requêtes de ce rapport sont donc évaluées à `2026-09-27T00:00:00.001Z`, au moins 30 min après la dernière ingestion.
 
 ### Choix des labels et cardinalité
 
 Loki indexe **uniquement les labels**, et chaque combinaison de labels crée un flux séparé. Un label doit donc avoir peu de valeurs possibles.
-- `job` (2 valeurs : `telemetry`, `telemetry-historique`), `level` (`info`, `warn`) et `event` (5 types) restent sous la dizaine de valeurs. Ce sont les premiers filtres de toutes les requêtes, d'où leur place en labels.
+- `job` (2 valeurs : `telemetry`, `telemetry-historique`), `level` (`info`, `warn`) et `event` (5 types) restent sous la dizaine de valeurs. Ce sont les premiers filtres de toutes les requêtes, d'où leur place en labels (voir docs/captures/B1-loki-logs-direct.png).
+
 - `report.id` (un par rapport, environ 2100), `client` (231), `server.id` (752 parties rien que dans les spikes) et `build` (une nouvelle valeur à chaque déploiement) créeraient des centaines ou milliers de petits flux. L'index grossirait et les requêtes ralentiraient.
 
 Ces champs restent donc dans le contenu JSON, et on les filtre au moment de la requête avec `| json` (ou `|=` pour un filtre texte rapide).
@@ -164,3 +173,7 @@ Le service expose ses métriques sur `GET /metrics` avec prom-client. Elles sont
 Le label `route` utilise le modèle de route Express (`req.route.path`) et non l'URL: une URL inconnue ou inventée donne toujours `unknown` au lieu de créer une nouvelle série.
 Pour `POST /api/reports`, le `build` est envoyé par le client, donc on le vérifie avec la regex `^beta-\d{8}-\d+$`. Sinon un client modifié (comme `5e1f0c7a`) pourrait inventer une valeur par rapport. Une valeur invalide devient `invalid`.
 Enfin, il n'y a pas de label `client` (231 valeurs et plus) ni `server.id` (une valeur par partie, sans limite) : ces identifiants restent dans les logs, et on les retrouve dans Loki avec `| json`.
+
+## E1 - Classification des spikes par cause
+
+`scripts/ingest-history.js` applique `classifyReport` à chaque rapport de l'historique: les 2110 spikes uniques sont répartis entre generic, shader, overlay, hidden, network et world (voir docs/captures/E1-classification-par-cause.png).
