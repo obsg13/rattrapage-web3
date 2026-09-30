@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const metrics = require('./metrics');
 
 // Application HTTP : ingestion des rapports clients + consultation des parties en cours.
 function createApp({ fleet, log }) {
@@ -12,11 +13,20 @@ function createApp({ fleet, log }) {
     res.on('finish', () => {
       const durationMs = Number(process.hrtime.bigint() - t0) / 1e6;
       log({ ts: new Date().toISOString(), level: 'info', event: 'http_request', method: req.method, path: req.route?.path ?? req.path, status: res.statusCode, durationMs: Math.round(durationMs * 100) / 100 });
+      // route = modele de la route ('/api/games'), jamais l'URL brute : pas de nouvelle serie par URL inconnue
+      const route = req.route?.path ?? 'unknown';
+      metrics.httpRequestsTotal.inc({ method: req.method, route, status: res.statusCode });
+      metrics.httpRequestDuration.observe({ method: req.method, route }, durationMs / 1000);
     });
     next();
   });
 
   app.get('/healthz', (req, res) => res.json({ status: 'ok' }));
+
+  app.get('/metrics', async (req, res) => {
+    res.set('Content-Type', metrics.register.contentType);
+    res.send(await metrics.register.metrics());
+  });
 
   app.get('/api/games', (req, res) => res.json(fleet ? fleet.liveGames() : []));
 
