@@ -146,6 +146,13 @@ Le label `route` utilise le modèle de route Express (`req.route.path`) et non l
 Pour `POST /api/reports`, le `build` est envoyé par le client, donc on le vérifie avec la regex `^beta-\d{8}-\d+$`. Sinon un client modifié (comme `5e1f0c7a`) pourrait inventer une valeur par rapport. Une valeur invalide devient `invalid`.
 Enfin, il n'y a pas de label `client` (231 valeurs et plus) ni `server.id` (une valeur par partie, sans limite) : ces identifiants restent dans les logs, et on les retrouve dans Loki avec `| json`.
 
+## C2 - Recording rules
+
+Les 4 recording rules de `prometheus/rules/recording.yml` sont calculées par Prometheus toutes les minutes, sur une fenêtre de 5 min, et nommées selon la convention `niveau:metrique:operation`. Les dashboards lisent directement le résultat au lieu de refaire le calcul à chaque affichage (voir docs/captures/C2-recording-rules.png).
+- `route:http_requests:rate5m` (requêtes par seconde par route) et `job:http_requests_5xx:ratio_rate5m` (part des réponses 5xx, qui vaut 0 et non « No data » quand il n'y a aucune erreur) alimentent le dashboard **Santé du service**.
+- `route:http_request_duration_seconds:p95_5m` (latence p95 par route, via `histogram_quantile`) est aussi dans **Santé du service**, à côté du trafic, pour voir si la latence monte avec la charge.
+- `build_cause:perf_reports:ratio_rate5m` (part de chaque cause dans les rapports d'un build, dont la somme vaut 1) alimente le dashboard **Performance du jeu** : il compare les builds entre eux et fait ressortir la hausse de l'overlay depuis le build 24-3.
+
 ## E1 - Classification des spikes par cause
 
 `scripts/ingest-history.js` applique `classifyReport` à chaque rapport de l'historique: les 2110 spikes uniques sont répartis entre generic, shader, overlay, hidden, network et world (voir docs/captures/E1-classification-par-cause.png).
