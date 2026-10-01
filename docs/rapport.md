@@ -106,13 +106,13 @@ Le script d'ingestion applique ces deux règles (fonction `isSuspicious`) et ajo
 sum by (client) (count_over_time({job="telemetry-historique", event="perf_spike"} | json | occurrence = 1 | suspect = "true" | regexp `"id":"P-(?P<client>[0-9a-f]+)-` [8d]))
 ```
 
-Résultat: 70 rapports suspects, tous du client `5e1f0c7a` (sur 231 clients). **Ce sont tous les rapports de ce client : il n'envoie que des rapports falsifiés.**
+Résultat: 70 rapports suspects, tous du client `5e1f0c7a` (sur 231 clients). **Ce sont tous les rapports de ce client: il n'envoie que des rapports falsifiés.**
 
 **Impact:** ces 70 rapports faussent les moyennes de FPS et de temps de frame. On les exclut de l'analyse de performance, par exemple avec `!= "P-5e1f0c7a-"`, et on les traite comme un cas de sécurité (client modifié ou rapports forgés).
 
 ### B3.8 - Pièges de mesure dans Loki
 
-J'ai constaté que le même comptage variait d'une ligne selon l'instant où je l'évaluais (2943 au lieu de 2944) : une ligne horodatée pile à 22:00:00 UTC était oubliée, car Loki découpe les requêtes en tranches d'une heure.
+J'ai constaté que le même comptage variait d'une ligne selon l'instant où je l'évaluais (2943 au lieu de 2944): une ligne horodatée pile à 22:00:00 UTC était oubliée, car Loki découpe les requêtes en tranches d'une heure.
 J'ai aussi vu qu'après une ré-ingestion, les dernières lignes restaient invisibles pendant environ 30 min (2096 spikes au lieu de 2110).
 
 **Impact:** un petit écart de comptage peut venir de Loki et non des données. J'évalue donc toutes les requêtes à `2026-09-27T00:00:00.001Z`, et j'attends 30 min après une ingestion avant de compter.
@@ -132,14 +132,14 @@ Le service expose ses métriques sur `GET /metrics` avec prom-client. Elles sont
 
 | Métrique | Type | Labels (nombre de valeurs possibles) | Question à laquelle elle répond | Pourquoi ce type |
 |---|---|---|---|---|
-| `http_requests_total` | Counter | `method` (2 en pratique : GET, POST), `route` (5 : 4 routes + `unknown`), `status` (200, 202, 400, 404,..) | Combien de requêtes par seconde, et quelle part en erreur ? | Le nombre ne fait que monter ; `rate()` donne le débit et le taux d'erreurs. |
+| `http_requests_total` | Counter | `method` (2 en pratique: GET, POST), `route` (5 : 4 routes + `unknown`), `status` (200, 202, 400, 404,..) | Combien de requêtes par seconde, et quelle part en erreur ? | Le nombre ne fait que monter ; `rate()` donne le débit et le taux d'erreurs. |
 | `http_request_duration_seconds` | Histogram | `method` (2), `route` (5) ; buckets de 5 ms à 1 s | Quel est le p95 de latence de chaque route ? | Une moyenne cache les requêtes lentes ; l'histogramme permet `histogram_quantile`. Pas de label `status` pour limiter le nombre de séries. |
 | `games_in_progress` | Gauge | aucun (1 série) | Combien de parties tournent en ce moment ? | La valeur monte et descend. Elle est recalculée à chaque scrape via `collect()`, donc jamais périmée. |
 | `games_completed_total` | Counter | `map` (5), `quarantined` (2) | Combien de parties se terminent, sur quelle carte, et combien sont mises en quarantaine ? | Compte des événements qui s'accumulent. |
-| `game_duration_seconds` | Histogram | `map` (5) ; buckets 60, 120, 300, 600, 900 | Les parties ont-elles une durée normale, ou voit-on des parties très courtes (farming sur `vault`) ? | On lit la répartition par tranches : 60/120 isolent le farming (55-75 s), 300 à 900 les parties normales (300-840 s). Durée en temps de jeu. |
+| `game_duration_seconds` | Histogram | `map` (5) ; buckets 60, 120, 300, 600, 900 | Les parties ont-elles une durée normale, ou voit-on des parties très courtes (farming sur `vault`) ? | On lit la répartition par tranches: 60/120 isolent le farming (55-75 s), 300 à 900 les parties normales (300-840 s). Durée en temps de jeu. |
 | `perf_reports_total` | Counter | `cause` (6), `build` (1 par build déployé + `invalid`), `source` (2 : `fleet`, `ingest`) | Quelle cause de spike augmente, et depuis quel build ? | `rate()` par `cause` et `build` montre une régression, comme l'overlay depuis le build 24-3. |
 | `perf_reports_suspicious_total` | Counter | `build` (1 par build + `invalid`) | Reçoit-on des rapports impossibles (fps > 144 ou frame plus courte que son travail) ? | Un compteur suffit pour déclencher une alerte ; le détail (quel client) se cherche dans Loki. |
-| Métriques par défaut (`process_*`, `nodejs_*`) | Counter, Gauge et Histogram selon la métrique | peu de labels, valeurs fixes (ex. type de GC, espace du heap) | Le processus Node est-il saturé : CPU, mémoire, event loop bloquée ? | Fournies par `collectDefaultMetrics`. `nodejs_eventloop_lag_seconds` est utile ici car `POST /api/reports` fait du travail synchrone qui bloque l'event loop. |
+| Métriques par défaut (`process_*`, `nodejs_*`) | Counter, Gauge et Histogram selon la métrique | peu de labels, valeurs fixes (exemple: type de GC, espace du heap) | Le processus Node est-il saturé: CPU, mémoire, event loop bloquée ? | Fournies par `collectDefaultMetrics`. `nodejs_eventloop_lag_seconds` est utile ici car `POST /api/reports` fait du travail synchrone qui bloque l'event loop. |
 
 **Cardinalité:** chaque combinaison de labels crée une série dans Prometheus, donc un label doit avoir un petit nombre de valeurs connues à l'avance.
 Le label `route` utilise le modèle de route Express (`req.route.path`) et non l'URL: une URL inconnue ou inventée donne toujours `unknown` au lieu de créer une nouvelle série.
@@ -152,6 +152,16 @@ Les 4 recording rules de `prometheus/rules/recording.yml` sont calculées par Pr
 - `route:http_requests:rate5m` (requêtes par seconde par route) et `job:http_requests_5xx:ratio_rate5m` (part des réponses 5xx, qui vaut 0 et non "No data" quand il n'y a aucune erreur) alimentent le dashboard **Santé du service**.
 - `route:http_request_duration_seconds:p95_5m` (latence p95 par route, via `histogram_quantile`) est aussi dans **Santé du service**, à côté du trafic, pour voir si la latence monte avec la charge.
 - `build_cause:perf_reports:ratio_rate5m` (part de chaque cause dans les rapports d'un build, dont la somme vaut 1) alimente le dashboard **Performance côté joueur**. En direct, le service ne reçoit que le build `beta-20260926-6`, donc la règle montre la part de chaque cause pour ce build. La comparaison entre builds, comme la hausse de l'overlay depuis le build 24-3, se fait sur l'historique dans Loki.
+
+## D - Tableaux de bord
+
+Les 3 dashboards sont provisionnés sous forme de code: au démarrage, Grafana relit les fichiers `grafana/dashboards/*.json` (déclarés dans `grafana/provisioning/dashboards/dashboards.yml`) et les datasources de `grafana/provisioning/datasources/datasources.yml`. Chaque panneau a une question pour titre et une phrase de description.
+- **Santé du service** (en direct, Prometheus): trafic et latence p95 par route, part des 5xx, requêtes refusées en 4xx, service joignable, retard de l'event loop (voir docs/captures/D-sante-du-service.png).
+- **Performance côté joueur**: part des causes de spikes en direct, puis sur l'historique Loki les spikes overlay par build, par heure, par écran et par navigateur, et la durée p95 des images par cause (voir docs/captures/D-performance-du-jeu.png). Dans le panneau des écrans, chaque barre se lit "bloom puis largeur" (exemple: `true 2560`).
+- **Activité de jeu et intégrité des parties**: en direct, les parties en cours, les parties terminées par carte et les parties vault de moins de 120 s face aux quarantaines; sur l'historique, le farming sur vault par heure, le client qui envoie des rapports impossibles et les spikes pendant un serveur saccadé (voir docs/captures/D-activite-et-integrite.png).
+
+La plage par défaut est la dernière heure, et les panneaux historiques (Loki) affichent les 30 derniers jours. Après le 19/10/2026, pour revoir toute la semaine de l'export, choisir dans le sélecteur de temps la plage du 2026-09-19 00:00 au 2026-09-27 00:00 (UTC). Les panneaux en direct sont alors vides, ce qui est normal.
+
 
 ## E1 - Classification des spikes par cause
 
