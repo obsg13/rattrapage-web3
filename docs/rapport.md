@@ -29,9 +29,9 @@ sum by (event) (count_over_time({job="telemetry-historique"} | json | occurrence
 
 Période couverte : du 19/09/2026 22:31 UTC au 26/09/2026 22:04 UTC, soit 7 jours.
 
-Preuve : `{job="telemetry-historique"}` dans Grafana Explore, en tri « Oldest first » puis « Newest first ».
+Preuve : `{job="telemetry-historique"}` dans Grafana Explore, en tri "Oldest first" puis "Newest first".
 
-**Impact:** le nom du fichier (« 20_26 ») ne correspond pas aux dates UTC : le premier événement date du 19/09 au soir en UTC (le 20/09 à Paris). Toutes les analyses doivent compter avec `occurrence = 1`, sinon elles surestiment d'environ 2 %.
+**Impact:** le nom du fichier ("20_26") ne correspond pas aux dates UTC : le premier événement date du 19/09 au soir en UTC (le 20/09 à Paris). Toutes les analyses doivent compter avec `occurrence = 1`, sinon elles surestiment d'environ 2%.
 
 ### B3.2 - Pièges de format et traitement par le script
 
@@ -82,7 +82,7 @@ Ces parties ne sont pas situées au début ni à la fin de l'export : leurs abse
 - 4 spikes (2 parties) se produisent juste avant le trou du 22/09 à 11:59 UTC (voir B3.6).
 - Les 70 autres sont exactement les 70 rapports falsifiés du client `5e1f0c7a` (voir B3.7): chacun cite une partie qui n'existe nulle part. **Le client invente des parties: c'est une preuve de plus de falsification, pas des abandons.**
 
-**Impact:** le script ne peut pas rattacher ces spikes à une carte finale ni à un score. On les garde pour mesurer les performances, mais on les exclut des analyses « par partie terminée ».
+**Impact:** le script ne peut pas rattacher ces spikes à une carte finale ni à un score. On les garde pour mesurer les performances, mais on les exclut des analyses "par partie terminée".
 
 ### B3.6 - Trous dans les données
 
@@ -149,9 +149,9 @@ Enfin, il n'y a pas de label `client` (231 valeurs et plus) ni `server.id` (une 
 ## C2 - Recording rules
 
 Les 4 recording rules de `prometheus/rules/recording.yml` sont calculées par Prometheus toutes les minutes, sur une fenêtre de 5 min, et nommées selon la convention `niveau:metrique:operation`. Les dashboards lisent directement le résultat au lieu de refaire le calcul à chaque affichage (voir docs/captures/C2-recording-rules.png).
-- `route:http_requests:rate5m` (requêtes par seconde par route) et `job:http_requests_5xx:ratio_rate5m` (part des réponses 5xx, qui vaut 0 et non « No data » quand il n'y a aucune erreur) alimentent le dashboard **Santé du service**.
+- `route:http_requests:rate5m` (requêtes par seconde par route) et `job:http_requests_5xx:ratio_rate5m` (part des réponses 5xx, qui vaut 0 et non "No data" quand il n'y a aucune erreur) alimentent le dashboard **Santé du service**.
 - `route:http_request_duration_seconds:p95_5m` (latence p95 par route, via `histogram_quantile`) est aussi dans **Santé du service**, à côté du trafic, pour voir si la latence monte avec la charge.
-- `build_cause:perf_reports:ratio_rate5m` (part de chaque cause dans les rapports d'un build, dont la somme vaut 1) alimente le dashboard **Performance du jeu**. En direct, le service ne reçoit que le build `beta-20260926-6`, donc la règle montre la part de chaque cause pour ce build. La comparaison entre builds, comme la hausse de l'overlay depuis le build 24-3, se fait sur l'historique dans Loki.
+- `build_cause:perf_reports:ratio_rate5m` (part de chaque cause dans les rapports d'un build, dont la somme vaut 1) alimente le dashboard **Performance côté joueur**. En direct, le service ne reçoit que le build `beta-20260926-6`, donc la règle montre la part de chaque cause pour ce build. La comparaison entre builds, comme la hausse de l'overlay depuis le build 24-3, se fait sur l'historique dans Loki.
 
 ## E1 - Classification des spikes par cause
 
