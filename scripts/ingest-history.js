@@ -54,8 +54,15 @@ for (const block of blocks) {
     data.rttMs = data.report.rttMs ?? data.report.network?.rttMs; // v1 ou v2
   }
 
+  const ts = parseDate(dateText);
+
+  // Durée de la partie en secondes (sert à repérer le farming)
+  if (type === 'game_completed' && data.createdAt) {
+    data.durationS = Math.round((ts - data.createdAt) / 1000);
+  }
+
   events.push({
-    ts: parseDate(dateText),
+    ts,
     event: type,
     line: { headerId, summary, occurrence: seen[block], ...data },
   });
