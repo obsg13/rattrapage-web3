@@ -1,0 +1,53 @@
+# Alertes: Prometheus évalue ces règles toutes les minutes.
+# Quand la condition devient vraie, l'alerte passe en "Pending".
+# Si elle reste vraie pendant toute la durée "for", elle passe en "Firing".
+# On réutilise les recording rules de recording.yml par leur nom.
+groups:
+  - name: alertes
+    rules:
+      # Régression overlay / Dans l'historique, l'overlay représente environ 1% des spikes
+      # sur les builds 19-2 et 22-1, puis 33% sur le build 24-3.
+      # 10% est loin des deux: bien au-dessus du normal, bien en dessous de la régression.
+      # 10 min (deux fenêtres de 5 min) pour ne pas alerter sur une rafale isolée.
+      - alert: OverlaySpikeRegression
+        expr: build_cause:perf_reports:ratio_rate5m{cause="overlay"} > 0.10
+        for: 10m
+        annotations:
+          summary: "Build {{ $labels.build }} : {{ $value | humanizePercentage }} des spikes viennent de l'overlay (normal : environ 1 %)"
+
+      # Farming sur vault / Une partie normale dure au moins 300s, une partie farmée environ 60s.
+      # Hors farming, aucune partie vault ne dure moins de 120s: plus de 5 en 15 min n'est pas du jeu normal.
+      # Attention: Prometheus 3 écrit le="120.0" et non le="120" (sinon la requête ne trouve rien).
+      # La fenêtre de 15 min garde la valeur haute après l'épisode: attendre 5 min ne fait rien rater.
+      - alert: VaultFarming
+        expr: sum(increase(game_duration_seconds_bucket{map="vault", le="120.0"}[15m])) > 5
+        for: 5m
+        annotations:
+          summary: "Farming probable : {{ $value | humanize }} parties vault de moins de 120s en 15 min"
+
+      # Rapport impossible (fps > 144 ou image plus courte que son travail).
+      # Un client honnête n'en envoie jamais: un seul suffit.
+      # for: 0m car une seule preuve suffit, il n'y a rien à confirmer.
+      - alert: SuspiciousReports
+        expr: sum(increase(perf_reports_suspicious_total[10m])) > 0
+        for: 0m
+        annotations:
+          summary: "Rapports impossibles reçus dans les 10 dernières minutes: chercher le client dans Loki"
+
+      # Latence de POST /api/reports. Le p95 normal est d'environ 10ms.
+      # 200ms, c'est 20 fois plus: le service n'arrive plus à suivre.
+      # 5 min pour ne pas alerter sur un pic court (redémarrage, rafale de rapports).
+      - alert: ApiLatencyHigh
+        expr: route:http_request_duration_seconds:p95_5m{route="/api/reports"} > 0.2
+        for: 5m
+        annotations:
+          summary: "Le p95 de /api/reports vaut {{ $value | humanizeDuration }} (normal: environ 10ms)"
+
+      # Erreurs serveur. Normalement 0% de 5xx (la recording rule renvoie 0, pas "No data").
+      # 5% = 1 requête sur 20: on tolère une erreur isolée, pas une panne.
+      # 5 min pour ne pas alerter sur quelques erreurs pendant un redémarrage.
+      - alert: ApiErrors
+        expr: job:http_requests_5xx:ratio_rate5m > 0.05
+        for: 5m
+        annotations:
+          summary: "{{ $value | humanizePercentage }} des réponses sont des erreurs 5xx (normal : 0%)"
