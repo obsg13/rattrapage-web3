@@ -444,7 +444,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "route:http_request_duration_seconds:p95_5m",
+          "expr": "route:http_request_duration_seconds:p95_5m{route!=\"/metrics\"}",
           "legendFormat": "{{route}}",
           "range": true,
           "refId": "A"
@@ -470,6 +470,7 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
+            "axisSoftMin": 0,
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "line",
@@ -543,7 +544,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "route:http_requests:rate5m",
+          "expr": "route:http_requests:rate5m{route!=\"/metrics\"}",
           "legendFormat": "{{route}}",
           "range": true,
           "refId": "A"
@@ -567,5 +568,5 @@
   "timezone": "browser",
   "title": "Santé du service",
   "uid": "sante-du-service",
-  "version": 1
+  "version": 3
 }
