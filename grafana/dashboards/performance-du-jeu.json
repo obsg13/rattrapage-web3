@@ -444,7 +444,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Répartition des causes pour le build en service ; les parts additionnées font 1.",
+      "description": "Part des spikes overlay pour le build en service, calculée par la recording rule sur 5 minutes.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -456,6 +456,7 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
+            "axisSoftMin": 0,
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "line",
@@ -525,13 +526,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "build_cause:perf_reports:ratio_rate5m",
-          "legendFormat": "{{cause}} ({{build}})",
+          "expr": "build:perf_reports_overlay:ratio_rate5m",
+          "legendFormat": "{{build}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "En ce moment, quelle part des spikes vient de chaque cause ?",
+      "title": "En ce moment, quelle part des spikes vient de l'overlay ?",
       "type": "timeseries"
     }
   ],
@@ -549,5 +550,5 @@
   "timezone": "utc",
   "title": "Performance côté joueur",
   "uid": "performance-du-jeu",
-  "version": 2
+  "version": 5
 }

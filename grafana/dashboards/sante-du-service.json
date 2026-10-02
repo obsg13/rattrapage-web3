@@ -304,6 +304,7 @@
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -568,5 +569,5 @@
   "timezone": "browser",
   "title": "Santé du service",
   "uid": "sante-du-service",
-  "version": 3
+  "version": 4
 }

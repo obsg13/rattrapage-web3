@@ -10,7 +10,7 @@ groups:
       # 10% est loin des deux: bien au-dessus du normal, bien en dessous de la régression.
       # 10 min (deux fenêtres de 5 min) pour ne pas alerter sur une rafale isolée.
       - alert: OverlaySpikeRegression
-        expr: build_cause:perf_reports:ratio_rate5m{cause="overlay"} > 0.10
+        expr: build:perf_reports_overlay:ratio_rate5m > 0.10
         for: 10m
         annotations:
           summary: "Build {{ $labels.build }} : {{ $value | humanizePercentage }} des spikes viennent de l'overlay (normal : environ 1 %)"
@@ -43,7 +43,7 @@ groups:
         annotations:
           summary: "Le p95 de /api/reports vaut {{ $value | humanizeDuration }} (normal: environ 10ms)"
 
-      # Erreurs serveur. Normalement 0% de 5xx (la recording rule renvoie 0, pas "No data").
+      # Erreurs serveur. Normalement 0% de 5xx.
       # 5% = 1 requête sur 20: on tolère une erreur isolée, pas une panne.
       # 5 min pour ne pas alerter sur quelques erreurs pendant un redémarrage.
       - alert: ApiErrors

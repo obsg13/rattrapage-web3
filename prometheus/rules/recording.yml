@@ -11,16 +11,9 @@ groups:
       - record: route:http_requests:rate5m
         expr: sum by (route) (rate(http_requests_total[5m]))
 
-      # Question : quelle part des requêtes finit en erreur serveur (5xx) ?
-      # Résultat entre 0 et 1 (0.02 = 2 % d'erreurs)
+      # Question: quelle part des requêtes finit en erreur serveur (5xx) ?
       - record: job:http_requests_5xx:ratio_rate5m
-        # "or ... * 0" : s'il n'y a encore aucune 5xx, on compte 0 au lieu de rien
-        expr: |
-          (
-            sum by (job) (rate(http_requests_total{status=~"5.."}[5m]))
-            or
-            sum by (job) (rate(http_requests_total[5m])) * 0
-          )
+        expr: sum by (job) (rate(http_requests_total{status=~"5.."}[5m]))
           /
           sum by (job) (rate(http_requests_total[5m]))
 
@@ -32,10 +25,6 @@ groups:
             sum by (route, le) (rate(http_request_duration_seconds_bucket[5m]))
           )
 
-      # Question : dans chaque build, quelle part des rapports vient de chaque cause ?
-      # Pour un même build, la somme des causes vaut 1
-      - record: build_cause:perf_reports:ratio_rate5m
-        expr: |
-          sum by (build, cause) (rate(perf_reports_total[5m]))
-          / on (build) group_left
-          sum by (build) (rate(perf_reports_total[5m]))
+      # Question: dans chaque build, quelle part des rapports vient de l'overlay ?
+      - record: build:perf_reports_overlay:ratio_rate5m
+        expr: sum by (build) (rate(perf_reports_total{cause="overlay"}[5m])) / sum by (build) (rate(perf_reports_total[5m]))
