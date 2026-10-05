@@ -39,3 +39,50 @@ Game completed <serverId> · <date locale>
 <map> · <score>
 { ...état final du serveur... }
 ```
+
+## Installation avec la stack d'observabilité
+
+Prérequis: Docker Desktop (avec docker compose).
+
+```bash
+docker compose up -d --build
+```
+
+Cette commande lance le service, le générateur de charge et toute la stack d'observabilité:
+
+| Service | Rôle | Adresse |
+|---|---|---|
+| telemetry | API du jeu et simulation des parties | http://localhost:8080 |
+| loadgen | générateur de charge | - |
+| loki | stockage des logs | http://localhost:3100 |
+| promtail | envoie les logs du service vers Loki | - |
+| ingest-history | importe l'export historique dans Loki, puis s'arrête (`exited (0)` est normal) | - |
+| prometheus | métriques et alertes | http://localhost:9090 |
+| grafana | dashboards | http://localhost:3000 |
+
+Pour tout arrêter: `docker compose down`
+
+### Grafana
+
+- Adresse: http://localhost:3000, identifiants `admin` / `admin`
+- 3 dashboards (menu Dashboards): Santé du service, Performance côté joueur, Activité de jeu et intégrité des parties
+- Les panneaux de l'historique affichent les 30 derniers jours. Après le 19/10/2026, choisir dans le sélecteur de temps la plage du 2026-09-19 00:00 au 2026-09-27 00:00 (UTC) pour revoir l'export. Les panneaux en direct sont alors vides, c'est normal.
+
+### Prometheus
+
+- Métriques du service: http://localhost:8080/metrics
+- Alertes: http://localhost:9090/alerts
+- Recording rules: http://localhost:9090/rules
+
+### Réimporter l'historique
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+Attendre environ 30min après l'import avant de compter les données dans Grafana.
+
+### Rapport et captures
+
+Le rapport est dans `docs/rapport.pdf` et les captures d'écran dans `docs/captures/`.
